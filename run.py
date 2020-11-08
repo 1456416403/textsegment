@@ -17,14 +17,14 @@ from wiki_loader import WikipediaDataSet
 import accuracy
 import numpy as np
 from termcolor import colored
-
-
+from evaluation_utils import *
+import pickle
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 preds_stats = utils.predictions_analysis()
 
-
+# change two: remove the class named by Accuracies to evaluation_utils.py
 def softmax(x):
     max_each_row = np.max(x, axis=1, keepdims=True)
     exps = np.exp(x - max_each_row)
@@ -35,42 +35,6 @@ def softmax(x):
 def import_model(model_name):
     module = __import__('models.' + model_name, fromlist=['models'])
     return module.create()
-
-
-class Accuracies(object):
-    def __init__(self):
-        self.thresholds = np.arange(0, 1, 0.05)
-        self.accuracies = {k: accuracy.Accuracy() for k in self.thresholds}
-
-    def update(self, output_np, targets_np):
-        current_idx = 0
-        for k, t in enumerate(targets_np):
-            document_sentence_count = len(t)
-            to_idx = int(current_idx + document_sentence_count)
-
-            for threshold in self.thresholds:
-                output = ((output_np[current_idx: to_idx, :])[:, 1] > threshold)
-                h = np.append(output, [1])
-                tt = np.append(t, [1])
-
-                self.accuracies[threshold].update(h, tt)
-
-            current_idx = to_idx
-
-    def calc_accuracy(self):
-        min_pk = np.inf
-        min_threshold = None
-        min_epoch_windiff = None
-        for threshold in self.thresholds:
-            epoch_pk, epoch_windiff = self.accuracies[threshold].calc_accuracy()
-            if epoch_pk < min_pk:
-                min_pk = epoch_pk
-                min_threshold = threshold
-                min_epoch_windiff = epoch_windiff
-
-        return min_pk, min_epoch_windiff, min_threshold
-
-
 def train(model, args, epoch, dataset, logger, optimizer):
     model.train()
     total_loss = float(0)
@@ -120,20 +84,17 @@ def validate(model, args, epoch, dataset, logger):
                 target_seg = targets_var.data.cpu().numpy()
                 preds_stats.add(output_seg, target_seg)
 
-                acc.update(output_softmax.data.cpu().numpy(), target)
+                acc.update(output_softmax.data.cpu().numpy(), target, paths)
 
-
-            # except Exception as e:
-            #     # logger.info('Exception "%s" in batch %s', e, i)
-            #     logger.debug('Exception while handling batch with file paths: %s', paths, exc_info=True)
-            #     pass
-
-        epoch_pk, epoch_windiff, threshold = acc.calc_accuracy()
-
-        logger.info('Validating Epoch: {}, accuracy: {:.4}, Pk: {:.4}, Windiff: {:.4}, F1: {:.4} . '.format(epoch + 1,
+        # epoch_pk, epoch_windiff, threshold = acc.calc_accuracy()
+        # change three: more metrices
+        epoch_pk, epoch_windiff, epoch_b, epoch_s, threshold = acc.calc_accuracy()
+        logger.info('Validating Epoch: {}, accuracy: {:.4}, Pk: {:.4}, Windiff: {:.4}, B: {:.4}, S: {:.4} ,F1: {:.4} . '.format(epoch + 1,
                                                                                                             preds_stats.get_accuracy(),
                                                                                                             epoch_pk,
                                                                                                             epoch_windiff,
+                                                                                                            epoch_b,
+                                                                                                            epoch_s,
                                                                                                             preds_stats.get_f1()))
         preds_stats.reset()
 
@@ -143,7 +104,7 @@ def validate(model, args, epoch, dataset, logger):
 def test(model, args, epoch, dataset, logger, threshold):
     model.eval()
     with tqdm(desc='Testing', total=len(dataset)) as pbar:
-        acc = accuracy.Accuracy()
+        acc = Accuracy() # accuracies class is not needed
         for i, (data, target, paths) in enumerate(dataset):
             if True:
                 if i == args.stop_after:
@@ -159,6 +120,8 @@ def test(model, args, epoch, dataset, logger, threshold):
                 current_idx = 0
 
                 for k, t in enumerate(target):
+                    # change four: record the path of test documents
+                    path = paths[k]
                     document_sentence_count = len(t)
                     to_idx = int(current_idx + document_sentence_count)
 
@@ -166,27 +129,25 @@ def test(model, args, epoch, dataset, logger, threshold):
                     h = np.append(output, [1])
                     tt = np.append(t, [1])
 
-                    acc.update(h, tt)
+                    acc.update(h, tt, path)
 
                     current_idx = to_idx
-
                     # acc.update(output_softmax.data.cpu().numpy(), target)
 
-            #
-            # except Exception as e:
-            #     # logger.info('Exception "%s" in batch %s', e, i)
-            #     logger.debug('Exception while handling batch with file paths: %s', paths, exc_info=True)
-
-        epoch_pk, epoch_windiff = acc.calc_accuracy()
-
-        logger.debug('Testing Epoch: {}, accuracy: {:.4}, Pk: {:.4}, Windiff: {:.4}, F1: {:.4} . '.format(epoch + 1,
-                                                                                                          preds_stats.get_accuracy(),
-                                                                                                          epoch_pk,
-                                                                                                          epoch_windiff,
-                                                                                                          preds_stats.get_f1()))
+        # epoch_pk, epoch_windiff = acc.calc_accuracy()
+        epoch_pk, epoch_windiff, epoch_b, epoch_s = acc.calc_accuracy()
+        logger.info('Testing Epoch: {}, accuracy: {:.4}, Pk: {:.4}, Windiff: {:.4}, B: {:.4}, S: {:.4} ,F1: {:.4} . '.format(
+                                                                                                    epoch + 1,
+                                                                                                    preds_stats.get_accuracy(),
+                                                                                                    epoch_pk,
+                                                                                                    epoch_windiff,
+                                                                                                    epoch_b,
+                                                                                                    epoch_s,
+                                                                                                    preds_stats.get_f1()))
         preds_stats.reset()
-
-        return epoch_pk
+        preds_stats.reset()
+        epoch_result = acc.all_test_result
+        return epoch_pk, epoch_result
 
 
 def main(args):
@@ -211,17 +172,18 @@ def main(args):
     if not args.infer:
         if args.wiki:
             dataset_path = Path(utils.config['wikidataset'])
-            train_dataset = WikipediaDataSet(dataset_path / 'true_train', word2vec=word2vec,
+            # change: set the train parameter
+            train_dataset = WikipediaDataSet(dataset_path / 'true_train', word2vec=word2vec, train=True,
                                              high_granularity=args.high_granularity)
-            dev_dataset = WikipediaDataSet(dataset_path / 'true_dev', word2vec=word2vec, high_granularity=args.high_granularity)
-            test_dataset = WikipediaDataSet(dataset_path / 'true_test', word2vec=word2vec,
+            dev_dataset = WikipediaDataSet(dataset_path / 'true_dev', word2vec=word2vec, train=False, high_granularity=args.high_granularity)
+            test_dataset = WikipediaDataSet(dataset_path / 'true_test', word2vec=word2vec, train=False,
                                             high_granularity=args.high_granularity)
 
-        # else:
-        #     dataset_path = utils.config['choidataset']
-        #     train_dataset = ChoiDataset(dataset_path, word2vec)
-        #     dev_dataset = ChoiDataset(dataset_path, word2vec)
-        #     test_dataset = ChoiDataset(dataset_path, word2vec)
+        else:
+            dataset_path = utils.config['choidataset']
+            train_dataset = ChoiDataset(dataset_path, word2vec)
+            dev_dataset = ChoiDataset(dataset_path, word2vec)
+            test_dataset = ChoiDataset(dataset_path, word2vec)
 
         train_dl = DataLoader(train_dataset, batch_size=args.bs, collate_fn=collate_fn, shuffle=True,
                               num_workers=args.num_workers)
@@ -250,16 +212,19 @@ def main(args):
                 torch.save(model, f)
 
             val_pk, threshold = validate(model, args, j, dev_dl, logger)
-            if val_pk < best_val_pk:
-                test_pk = test(model, args, j, test_dl, logger, threshold)
+            if val_pk < best_val_pk: # if val_pk < best_val_pk we store the result of every document on test!
+                test_pk, test_result = test(model, args, j, test_dl, logger, threshold)
                 logger.debug(
                     colored(
                         'Current best model from epoch {} with p_k {} and threshold {}'.format(j, test_pk, threshold),
                         'green'))
                 best_val_pk = val_pk
-                with (checkpoint_path / 'best_model.t7'.format(j)).open('wb') as f:
+                if not os.path.exists(checkpoint_path/"result_{}".format(j)):
+                    os.mkdir(checkpoint_path/"result_{}".format(j))
+                with (checkpoint_path / "result_{}".format(j) /'best_model.t7').open('wb') as f:
                     torch.save(model, f)
-
+                with (checkpoint_path / "result_{}".format(j) / "best_result").open("wb") as f:
+                    pickle.dump(test_result, f)
     else:
         test_dataset = WikipediaDataSet(args.infer, word2vec=word2vec,
                                         high_granularity=args.high_granularity)
@@ -270,18 +235,18 @@ def main(args):
 
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument('--cuda', help='Use cuda?', action='store_true')
+    parser.add_argument('--cuda', help='Use cuda?', action='store_false')
     parser.add_argument('--test', help='Test mode? (e.g fake word2vec)', action='store_true')
-    parser.add_argument('--bs', help='Batch size', type=int, default=8)
-    parser.add_argument('--test_bs', help='Batch size', type=int, default=5)
+    parser.add_argument('--bs', help='Batch size', type=int, default=32)
+    parser.add_argument('--test_bs', help='Batch size', type=int, default=32)
     parser.add_argument('--epochs', help='Number of epochs to run', type=int, default=10)
-    parser.add_argument('--model', help='Model to run - will import and run')
+    parser.add_argument('--model', help='Model to run - will import and run', default="max_sentence_embedding")
     parser.add_argument('--load_from', help='Location of a .t7 model file to load. Training will continue')
     parser.add_argument('--expname', help='Experiment name to appear on tensorboard', default='exp1')
     parser.add_argument('--checkpoint_dir', help='Checkpoint directory', default='checkpoints')
     parser.add_argument('--stop_after', help='Number of batches to stop after', default=None, type=int)
     parser.add_argument('--config', help='Path to config.json', default='config.json')
-    parser.add_argument('--wiki', help='Use wikipedia as dataset?', action='store_true')
+    parser.add_argument('--wiki', help='Use wikipedia as dataset?', action='store_false')
     parser.add_argument('--num_workers', help='How many workers to use for data loading', type=int, default=0)
     parser.add_argument('--high_granularity', help='Use high granularity for wikipedia dataset segmentation', action='store_true')
     parser.add_argument('--infer', help='inference_dir', type=str)
