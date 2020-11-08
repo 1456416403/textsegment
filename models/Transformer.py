@@ -121,6 +121,7 @@ class segmentmodel(nn.Module):
         self.first_layer = First_TransformerModel(ninp, nhead, nhid, nlayers, dropout)
         self.second_layer = Second_TransformerModel(ninp, nhead, nhid, nlayers, dropout)
         self.linear = nn.Linear(ninp, 2)
+        self.criterion = torch.nn.CrossEntropyLoss()
 
     def pad(self, s, max_length):
         s_length = s.size()[0]
@@ -152,7 +153,7 @@ class segmentmodel(nn.Module):
         # sum(sentences_per_doc), max_length)
 
         padded_sentences = [self.pad(s, max_length) for s in all_batch_sentences]
-        big_tensor = torch.cat(padded_sentences, 1)  # (max_length, batch size, 300)
+        big_tensor = torch.cat(padded_sentences, 1).cuda()  # (max_length, batch size, 300)
 
         mask = self.first_layer._generate_square_subsequent_mask(big_tensor,
                                                                  lengths).cuda()
@@ -192,6 +193,4 @@ class segmentmodel(nn.Module):
 
 def create():
 
-    return segmentmodel().cuda()
-model = create()
-print(model)
+    return segmentmodel()
