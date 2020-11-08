@@ -90,9 +90,9 @@ def train(model, args, epoch, dataset, logger, optimizer):
                 loss.backward()
 
                 optimizer.step()
-                total_loss += loss.data[0]
+                total_loss += loss.item()
                 # logger.debug('Batch %s - Train error %7.4f', i, loss.data[0])
-                pbar.set_description('Training, loss={:.4}'.format(loss.data[0]))
+                pbar.set_description('Training, loss={:.4}'.format(loss.item()))
             # except Exception as e:
                 # logger.info('Exception "%s" in batch %s', e, i)
                 # logger.debug('Exception while handling batch with file paths: %s', paths, exc_info=True)
