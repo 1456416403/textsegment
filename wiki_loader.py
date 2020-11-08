@@ -85,14 +85,19 @@ def read_wiki_file(path, word2vec, remove_preface_segment=True, ignore_list=Fals
         sentences = section.split('\n')
         if sentences:
             for sentence in sentences:
-                is_list_sentence = wiki_utils.get_list_token() + "." == sentence.encode('utf-8')
+                is_list_sentence = wiki_utils.get_list_token() + "." == str(sentence)
+                #print(is_list_sentence)
                 if ignore_list and is_list_sentence:
+                    # print(wiki_utils.get_list_token() + ".")
+                    # print(sentence.encode('utf-8'))
                     continue
                 if not return_as_sentences:
                     sentence_words = extract_sentence_words(sentence, remove_special_tokens=remove_special_tokens)
                     if 1 <= len(sentence_words):
                         data.append([word_model(word, word2vec) for word in sentence_words])
                     else:
+                        #print(sentence)
+                        #print(sentence_words)
                         #raise ValueError('Sentence in wikipedia file is empty')
                         logger.info('Sentence in wikipedia file is empty')
                 else:  # for the annotation. keep sentence as is.
@@ -107,6 +112,29 @@ def read_wiki_file(path, word2vec, remove_preface_segment=True, ignore_list=Fals
     return data, targets, path
 
 
+import random
+def get_random_files(list,train):
+    lenth = len(list)
+    rand_list = []
+    if train ==True:
+        num =8000
+    else:
+        num =1000
+    i = 0
+    jlist = []
+    while i<num:
+
+        j = random.randint(0,lenth)
+        if j not in jlist:
+            file = list[j]
+            rand_list.append(file)
+            i+=1
+    print(len(rand_list))
+    return rand_list
+def get_random_file_path(wiki_folder):
+    random_file_path = wiki_folder / 'random_paths'
+    return random_file_path
+
 class WikipediaDataSet(Dataset):
     def __init__(self, root, word2vec, train=True, manifesto=False, folder=False, high_granularity=False):
 
@@ -118,10 +146,19 @@ class WikipediaDataSet(Dataset):
             else:
                 root_path = Path(root)
                 cache_path = get_cache_path(root_path)
+                random_path = get_random_file_path(root_path)
                 if not cache_path.exists():
                     cache_wiki_filenames(root_path)
-                self.textfiles = cache_path.read_text().splitlines()
+                print(random_path)
+                if not random_path.exists():
 
+                    self.textfiles = get_random_files(cache_path.read_text().splitlines(),train)
+                    with random_path.open('w+') as f:
+                        for file in self.textfiles:
+                            f.write(str(file) + u'\n')
+                else:
+                    self.textfiles = random_path.read_text().splitlines()
+                print(len(self.textfiles))
         if len(self.textfiles) == 0:
             raise RuntimeError('Found 0 images in subfolders of: {}'.format(root))
         self.train = train
