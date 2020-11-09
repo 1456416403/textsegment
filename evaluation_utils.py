@@ -89,7 +89,7 @@ class Accuracies(object):
                 output = ((output_np[current_idx: to_idx, :])[:, 1] > threshold)
                 h = np.append(output, [1])
                 tt = np.append(t, [1])
-                self.accuracies[threshold].update(h, tt, path)
+                self.accuracies[threshold].update(h, tt)
             current_idx = to_idx
 
     def calc_accuracy(self):
@@ -172,29 +172,26 @@ class Accuracy:
             all_sentence_idx.insert(seg_idx, "|")
         return " ".join(all_sentence_idx)
 
-    def update(self, h, gold, path, window_size=-1, sentences_length=None):
-        # ��������һ����ֵɸѡ�µĽ��:
+    def update(self, h, gold, path=None, window_size=-1, sentences_length=None):
         h_boundaries = self.get_seg_boundaries(h, sentences_length)
         gold_boundaries = self.get_seg_boundaries(gold, sentences_length)
-        #
-        h_str = self.get_str(h_boundaries)
-        gold_str = self.get_str(gold_boundaries)
-        self.one_result["pred"] = h_str
-        self.one_result["golden"] = gold_str
-        #
         self._calculate(h_boundaries, gold_boundaries, window_size, calc_type=CalculateEnum.pk, path=path)
         self._calculate(h_boundaries, gold_boundaries, window_size, calc_type=CalculateEnum.windiff, path=path)
         self._calculate(h_boundaries, gold_boundaries, window_size, calc_type=CalculateEnum.boundary_similarity, path=path)
         self._calculate(h_boundaries, gold_boundaries, window_size, calc_type=CalculateEnum.segmentation_similarity ,path=path)
-        self.all_test_result[str(path)] = self.one_result
+        if path != None:
+            self.one_result = {}
+            h_str = self.get_str(h_boundaries)
+            gold_str = self.get_str(gold_boundaries)
+            self.one_result["pred"] = h_str
+            self.one_result["golden"] = gold_str
+            self.all_test_result[str(path)] = self.one_result
 
-    # ���㵥��ָ�꣬���洢��weight
+
+
     def _calculate(self, h_boundaries, gold_boundaries, window_size=-1, calc_type=CalculateEnum.pk, path=None):
-
         type_str = self.type_str_dict[calc_type]
         calculator = self.calculator_dict[calc_type]
-        weight = self.weight_dict[calc_type]
-        # ��������¸���������(������B Sָ��)
         if (type_str == "B" or type_str == "S") and (len(h_boundaries) == len(gold_boundaries) == 1):
             self.one_result[type_str] = None
             return
@@ -202,7 +199,6 @@ class Accuracy:
             result_dict = calculator(h_boundaries, gold_boundaries, window_size=window_size, return_parts=True)
         else:
             result_dict = calculator(h_boundaries, gold_boundaries, return_parts=True)
-        # for result in result_dict:
         false_seg_count = result_dict[0]
         total_count = result_dict[1]
         if total_count == 0:
@@ -213,24 +209,18 @@ class Accuracy:
             self.one_result[type_str] = false_prob
         else:
             self.one_result[type_str] = 1 - false_prob
-        weight.append((false_prob, total_count))
+        self.weight_dict[calc_type].append((false_prob, total_count))
 
-    # �����ƪ���µĵ���ƽ��ָ��
+
     def _get_result(self, calc_type=CalculateEnum.pk):
-        """
-        Get the result by the type of calculator.
-        :param calc_type: pk, windiff,boundary_similarity or segmentation_similarity
-        :return: the output value of calculator
-        """
         result_value = sum([pw[0] * pw[1] for pw in self.weight_dict[calc_type]]) / sum(
             [pw[1] for pw in self.weight_dict[calc_type]]) if len(
             self.weight_dict[calc_type]) > 0 else -1.0
         return result_value
 
-    # ���ض�ƪ���µ�����ƽ��ָ��
     def calc_accuracy(self):
         self.pk_value = self._get_result(calc_type=CalculateEnum.pk)
         self.windiff_value = self._get_result(calc_type=CalculateEnum.windiff)
         self.boundary_similarity_value = self._get_result(calc_type=CalculateEnum.boundary_similarity)
         self.segmentation_similarity_value = self._get_result(calc_type=CalculateEnum.segmentation_similarity)
-        return 1 - self.pk_value, 1 - self.windiff_value, self.boundary_similarity_value, self.segmentation_similarity_value
+        return 1-self.pk_value, 1-self.windiff_value, self.boundary_similarity_value, self.segmentation_similarity_value
