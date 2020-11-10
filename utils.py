@@ -5,8 +5,8 @@ import numpy as np
 import random
 from pathlib2 import Path
 from shutil import copy
-import torch
-import math
+
+
 
 config = {}
 
@@ -52,6 +52,117 @@ def unsort(sort_order):
 
     return result
 
+class f1(object):
+
+    def __init__(self,ner_size):
+        self.ner_size = ner_size
+        self.tp = np.array([0] * (ner_size +1))
+        self.fp = np.array([0] * (ner_size +1))
+        self.fn = np.array([0] * (ner_size +1))
+
+    def add(self,preds,targets,length):
+        tp = self.tp
+        fp = self.fp
+        fn = self.fn
+        ner_size = self.ner_size
+
+        prediction = np.argmax(preds, 2)
+
+        for i in range(len(targets)):
+            for j in range(length[i]):
+                if targets[i, j] == prediction[i, j]:
+                    tp[targets[i, j]] += 1
+                else:
+                    fp[targets[i, j]] += 1
+                    fn[prediction[i, j]] += 1
+
+        unnamed_entity = ner_size - 1
+        for i in range(ner_size):
+            if i != unnamed_entity:
+                tp[ner_size] += tp[i]
+                fp[ner_size] += fp[i]
+                fn[ner_size] += fn[i]
+
+
+    def score(self):
+        tp = self.tp
+        fp = self.fp
+        fn = self.fn
+        ner_size = self.ner_size
+
+        precision = []
+        recall = []
+        fscore = []
+        for i in range(ner_size + 1):
+            precision.append(tp[i] * 1.0 / (tp[i] + fp[i]))
+            recall.append(tp[i] * 1.0 / (tp[i] + fn[i]))
+            fscore.append(2.0 * precision[i] * recall[i] / (precision[i] + recall[i]))
+        print(fscore)
+
+        return fscore[ner_size]
+
+
+class predictions_analysis(object):
+
+    def __init__(self):
+        self.tp = 0
+        self.tn = 0
+        self.fp = 0
+        self.fn = 0
+
+
+    def add(self,predicions, targets):
+        self.tp += ((predicions == targets) & (1 == predicions)).sum()
+        self.tn += ((predicions == targets) & (0 == predicions)).sum()
+        self.fp += ((predicions != targets) & (1 == predicions)).sum()
+        self.fn += ((predicions != targets) & (0 == predicions)).sum()
+
+
+    def calc_recall(self):
+        if self.tp  == 0 and self.fn == 0:
+            return -1
+
+        return np.true_divide(self.tp, self.tp + self.fn)
+
+    def calc_precision(self):
+        if self.tp  == 0 and self.fp == 0:
+            return -1
+
+        return  np.true_divide(self.tp,self.tp + self.fp)
+
+
+
+
+    def get_f1(self):
+        if (self.tp + self.fp == 0):
+            return 0.0
+        if (self.tp + self.fn == 0):
+            return 0.0
+        precision = self.calc_precision()
+        recall = self.calc_recall()
+        if (not ((precision + recall) == 0)):
+            f1 = 2*(precision*recall) / (precision + recall)
+        else:
+            f1 = 0.0
+
+        return f1
+
+    def get_accuracy(self):
+
+        total = self.tp + self.tn + self.fp + self.fn
+        if (total == 0) :
+            return 0.0
+        else:
+            return np.true_divide(self.tp + self.tn, total)
+
+
+    def reset(self):
+        self.tp = 0
+        self.tn = 0
+        self.fn = 0
+        self.fp = 0
+
+
 def get_random_files(count, input_folder, output_folder, specific_section = True):
     files = Path(input_folder).glob('*/*/*/*') if specific_section else Path(input_folder).glob('*/*/*/*/*')
     file_paths = []
@@ -63,36 +174,3 @@ def get_random_files(count, input_folder, output_folder, specific_section = True
     for random_path in random_paths:
         output_path = Path(output_folder).joinpath(random_path.name)
         copy(str(random_path), str (output_path))
-
-
-logger = setup_logger(__name__, 'train.log')
-def collate_fn(batch):
-    batched_data = []
-    batched_targets = []
-    paths = []
-
-    window_size = 1
-    before_sentence_count = int(math.ceil(float(window_size - 1) /2))
-    after_sentence_count = window_size - before_sentence_count - 1
-
-    for data, targets, path in batch:
-        try:
-            max_index = len(data)
-            tensored_data = []
-            for curr_sentence_index in range(0, len(data)):
-                from_index = max([0, curr_sentence_index - before_sentence_count])
-                to_index = min([curr_sentence_index + after_sentence_count + 1, max_index])
-                sentences_window = [word for sentence in data[from_index:to_index] for word in sentence]
-                tensored_data.append(torch.FloatTensor(np.concatenate(sentences_window)))
-            tensored_targets = torch.zeros(len(data)).long()
-            tensored_targets[torch.LongTensor(targets)] = 1
-            tensored_targets = tensored_targets[:-1]
-            batched_data.append(tensored_data)
-            batched_targets.append(tensored_targets)
-            paths.append(path)
-        except Exception as e:
-            logger.info('Exception "%s" in file: "%s"', e, path)
-            logger.debug('Exception!', exc_info=True)
-            continue
-
-    return batched_data, batched_targets, paths

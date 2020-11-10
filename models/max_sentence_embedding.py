@@ -38,22 +38,28 @@ class SentenceEncodingRNN(nn.Module):
         batch_size = x.batch_sizes[0]
         s = zero_state(self, batch_size)
         packed_output, _ = self.lstm(x, s)
-        padded_output, lengths = pad_packed_sequence(packed_output) # (max sentence len, batch, 256)
+        padded_output, lengths = pad_packed_sequence(packed_output) # (max sentence len, batch, 256) 
+
         maxes =torch.tensor(maybe_cuda(torch.zeros(batch_size, padded_output.size(2))))
         for i in range(batch_size):
             maxes[i, :] = torch.max(padded_output[:lengths[i], i, :], 0)[0]
+
         return maxes
+
 
 class Model(nn.Module):
     def __init__(self, sentence_encoder, hidden=128, num_layers=2):
         super(Model, self).__init__()
+
         self.sentence_encoder = sentence_encoder
+
         self.sentence_lstm = nn.LSTM(input_size=sentence_encoder.hidden * 2,
                                      hidden_size=hidden,
                                      num_layers=num_layers,
                                      batch_first=True,
                                      dropout=0,
                                      bidirectional=True)
+
         # We have two labels
         self.h2s = nn.Linear(hidden * 2, 2)
 
@@ -62,12 +68,14 @@ class Model(nn.Module):
 
         self.criterion = nn.CrossEntropyLoss()
 
+
     def pad(self, s, max_length):
         s_length = s.size()[0]
         v = torch.tensor(maybe_cuda(s.unsqueeze(0).unsqueeze(0)))
         padded = F.pad(v, (0, 0, 0, max_length - s_length))  # (1, 1, max_length, 300)
         shape = padded.size()
         return padded.view(shape[2], 1, shape[3])  # (max_length, 1, 300)
+
 
     def pad_document(self, d, max_document_length):
         d_length = d.size()[0]
@@ -78,18 +86,22 @@ class Model(nn.Module):
 
     def forward(self, batch):
         batch_size = len(batch)
+
         sentences_per_doc = []
         all_batch_sentences = []
         for document in batch:
             all_batch_sentences.extend(document)
             sentences_per_doc.append(len(document))
+
         lengths = [s.size()[0] for s in all_batch_sentences]
         sort_order = np.argsort(lengths)[::-1]
         sorted_sentences = [all_batch_sentences[i] for i in sort_order]
         sorted_lengths = [s.size()[0] for s in sorted_sentences]
+
         max_length = max(lengths)
         logger.debug('Num sentences: %s, max sentence length: %s', 
                      sum(sentences_per_doc), max_length)
+
         padded_sentences = [self.pad(s, max_length) for s in sorted_sentences]
         big_tensor = torch.cat(padded_sentences, 1)  # (max_length, batch size, 300)
         packed_tensor = pack_padded_sequence(big_tensor, sorted_lengths)
@@ -114,11 +126,14 @@ class Model(nn.Module):
         packed_docs = pack_padded_sequence(docs_tensor, ordered_doc_sizes)
         sentence_lstm_output, _ = self.sentence_lstm(packed_docs, zero_state(self, batch_size=batch_size))
         padded_x, _ = pad_packed_sequence(sentence_lstm_output)  # (max sentence len, batch, 256)
+
         doc_outputs = []
         for i, doc_len in enumerate(ordered_doc_sizes):
             doc_outputs.append(padded_x[0:doc_len - 1, i, :])  # -1 to remove last prediction
+
         unsorted_doc_outputs = [doc_outputs[i] for i in unsort(ordered_document_idx)]
         sentence_outputs = torch.cat(unsorted_doc_outputs, 0)
+
         x = self.h2s(sentence_outputs)
         return x
 
