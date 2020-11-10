@@ -1,0 +1,2 @@
+result_test:保存的是 infer模式下的 测试结果
+result_{数字}:保存的是 train模式下 当验证集的pk值有所下降后的 测试结果
