@@ -6,6 +6,8 @@ from segeval.similarity.boundary import boundary_similarity as B
 from segeval.similarity.segmentation import segmentation_similarity as S
 import numpy as np
 import os
+
+
 class predictions_analysis(object):
     def __init__(self):
         self.tp = 0
@@ -20,7 +22,6 @@ class predictions_analysis(object):
         self.fp += ((predicions != targets) & (1 == predicions)).sum()
         self.fn += ((predicions != targets) & (0 == predicions)).sum()
 
-
     def calc_recall(self):
         if self.tp  == 0 and self.fn == 0:
             return -1
@@ -32,9 +33,6 @@ class predictions_analysis(object):
             return -1
 
         return  np.true_divide(self.tp,self.tp + self.fp)
-
-
-
 
     def get_f1(self):
         if (self.tp + self.fp == 0):
@@ -51,13 +49,11 @@ class predictions_analysis(object):
         return f1
 
     def get_accuracy(self):
-
         total = self.tp + self.tn + self.fp + self.fn
         if (total == 0) :
             return 0.0
         else:
             return np.true_divide(self.tp + self.tn, total)
-
 
     def reset(self):
         self.tp = 0
@@ -144,11 +140,6 @@ class Accuracy:
         self.all_test_result = {}
 
     def get_seg_boundaries(self, classifications, sentences_length=None):
-        """
-        :param list of tuples, each tuple is a sentence and its class (1 if it the sentence starts a segment, 0 otherwise).
-        e.g: [(this is, 0), (a segment, 1) , (and another one, 1)
-        :return: boundaries of segmentation to use for pk method. For given example the function will return (4, 3)
-        """
         curr_seg_length = 0
         boundaries = []
         for i, classification in enumerate(classifications):
@@ -173,27 +164,31 @@ class Accuracy:
         return " ".join(all_sentence_idx)
 
     def update(self, h, gold, path=None, window_size=-1, sentences_length=None):
+        self.one_result = {}
         h_boundaries = self.get_seg_boundaries(h, sentences_length)
+        # print("h_boundaries:",h_boundaries)
         gold_boundaries = self.get_seg_boundaries(gold, sentences_length)
-        self._calculate(h_boundaries, gold_boundaries, window_size, calc_type=CalculateEnum.pk, path=path)
-        self._calculate(h_boundaries, gold_boundaries, window_size, calc_type=CalculateEnum.windiff, path=path)
-        self._calculate(h_boundaries, gold_boundaries, window_size, calc_type=CalculateEnum.boundary_similarity, path=path)
-        self._calculate(h_boundaries, gold_boundaries, window_size, calc_type=CalculateEnum.segmentation_similarity ,path=path)
+        # print("g_boudaries:",gold_boundaries)
+        self._calculate(h_boundaries, gold_boundaries, window_size, calc_type=CalculateEnum.pk,path=path)
+        self._calculate(h_boundaries, gold_boundaries, window_size, calc_type=CalculateEnum.windiff,path=path)
+        self._calculate(h_boundaries, gold_boundaries, window_size, calc_type=CalculateEnum.boundary_similarity,path=path)
+        self._calculate(h_boundaries, gold_boundaries, window_size, calc_type=CalculateEnum.segmentation_similarity,path=path)
         if path != None:
-            self.one_result = {}
             h_str = self.get_str(h_boundaries)
+            # print("h_str:",h_str)
             gold_str = self.get_str(gold_boundaries)
+            # print("gold_str:",gold_str)
             self.one_result["pred"] = h_str
             self.one_result["golden"] = gold_str
+            # print(self.one_result)
             self.all_test_result[str(path)] = self.one_result
 
-
-
-    def _calculate(self, h_boundaries, gold_boundaries, window_size=-1, calc_type=CalculateEnum.pk, path=None):
+    def _calculate(self, h_boundaries, gold_boundaries, window_size=-1, calc_type=CalculateEnum.pk,path=None):
         type_str = self.type_str_dict[calc_type]
         calculator = self.calculator_dict[calc_type]
         if (type_str == "B" or type_str == "S") and (len(h_boundaries) == len(gold_boundaries) == 1):
             self.one_result[type_str] = None
+            # print(type_str+":", None)
             return
         if window_size != -1:
             result_dict = calculator(h_boundaries, gold_boundaries, window_size=window_size, return_parts=True)
@@ -207,10 +202,11 @@ class Accuracy:
             false_prob = float(false_seg_count) / float(total_count)
         if type_str in ["B","S"]:
             self.one_result[type_str] = false_prob
+            # print(type_str+":",false_prob)
         else:
-            self.one_result[type_str] = 1 - false_prob
+            self.one_result[type_str] = false_prob
+            # print(type_str+":", false_prob)
         self.weight_dict[calc_type].append((false_prob, total_count))
-
 
     def _get_result(self, calc_type=CalculateEnum.pk):
         result_value = sum([pw[0] * pw[1] for pw in self.weight_dict[calc_type]]) / sum(
@@ -223,4 +219,4 @@ class Accuracy:
         self.windiff_value = self._get_result(calc_type=CalculateEnum.windiff)
         self.boundary_similarity_value = self._get_result(calc_type=CalculateEnum.boundary_similarity)
         self.segmentation_similarity_value = self._get_result(calc_type=CalculateEnum.segmentation_similarity)
-        return 1-self.pk_value, 1-self.windiff_value, self.boundary_similarity_value, self.segmentation_similarity_value
+        return self.pk_value, self.windiff_value, self.boundary_similarity_value, self.segmentation_similarity_value
