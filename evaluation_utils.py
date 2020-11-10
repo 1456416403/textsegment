@@ -72,7 +72,7 @@ class CalculateEnum(Enum):
 
 class Accuracies(object):
     def __init__(self):
-        self.thresholds = [0.5]#np.arange(0, 1, 0.05)
+        self.thresholds = np.arange(0, 1, 0.05)
         self.accuracies = {k: Accuracy() for k in self.thresholds}  # ����������ֵ�µ�accuracy
 
     def update(self, output_np, targets_np, paths):
