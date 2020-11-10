@@ -123,13 +123,12 @@ def get_random_files(list,train):
     i = 0
     jlist = []
     while i<num:
-
         j = random.randint(0,lenth)
         if j not in jlist:
             file = list[j]
             rand_list.append(file)
             i+=1
-    print(len(rand_list))
+            jlist.append(j)
     return rand_list
 def get_random_file_path(wiki_folder):
     random_file_path = wiki_folder / 'random_paths'
@@ -149,16 +148,13 @@ class WikipediaDataSet(Dataset):
                 random_path = get_random_file_path(root_path)
                 if not cache_path.exists():
                     cache_wiki_filenames(root_path)
-                print(random_path)
                 if not random_path.exists():
-
                     self.textfiles = get_random_files(cache_path.read_text().splitlines(),train)
                     with random_path.open('w+') as f:
                         for file in self.textfiles:
                             f.write(str(file) + u'\n')
                 else:
                     self.textfiles = random_path.read_text().splitlines()
-                print(len(self.textfiles))
         if len(self.textfiles) == 0:
             raise RuntimeError('Found 0 images in subfolders of: {}'.format(root))
         self.train = train
