@@ -21,7 +21,6 @@ from test import test
 from validate import validate
 
 torch.multiprocessing.set_sharing_strategy('file_system')
-
 def softmax(x):
     max_each_row = np.max(x, axis=1, keepdims=True)
     exps = np.exp(x - max_each_row)
